@@ -40,12 +40,15 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
+
 CAN_HandleTypeDef hcan1;
 CAN_HandleTypeDef hcan2;
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim7;
-
+CAN_FilterTypeDef sFilterConfig;
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -53,10 +56,12 @@ TIM_HandleTypeDef htim7;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_CAN2_Init(void);
 static void MX_TIM7_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 CAN_TxHeaderTypeDef pTxHeader1; //указатель на структуру `CAN_TxHeaderTypeDef`, которая содержит заголовок сообщения (идентификатор, длину, флаги и т.д.).
 CAN_RxHeaderTypeDef pRxHeader1;
@@ -67,7 +72,9 @@ uint8_t RxDataBuff1[8]; // Буффер для приема из CAN
 uint8_t TxDataBuff2[8]; // Буффер для отправки в CAN
 uint8_t RxDataBuff2[8]; // Буффер для приема из CAN
 uint16_t DataEncoder; // данные с буфера переводим в число FFF
-CAN_FilterTypeDef sFilterConfig;
+
+uint32_t adcData[2];
+float adcVoltage;
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -79,11 +86,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim) {
 
     if(htim->Instance == TIM7) {
     	//HAL_GPIO_TogglePin(GREEN_LED_Port, GREEN_LED_Pin);
-    	TIM1->CCR1 = DataEncoder; // duty cycle PWM
+    	//TIM1->CCR1 = DataEncoder; // duty cycle PWM
+    	TIM1->CCR1 = adcData[0];
     	uint32_t mailBoxNum = 0;
     	HAL_CAN_AddTxMessage(&hcan2, &pTxHeader2, TxDataBuff2, &mailBoxNum);
-    	HAL_CAN_AddTxMessage(&hcan1, &pTxHeader1, TxDataBuff1, &mailBoxNum);
 
+    	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcData,1);
 
     }
     }
@@ -98,15 +106,30 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     DataEncoder|=RxDataBuff2[1]<<8;
 
 	//	HAL_GPIO_TogglePin(GREEN_LED_Port, GREEN_LED_Pin);
-	if (DataEncoder == 0xb00) HAL_GPIO_WritePin(GPIOC, GREEN_LED_Pin, GPIO_PIN_SET); // Byte0.0:=GVL_WH.LmpSpdSet2;
+//	if (DataEncoder == 0xb00) HAL_GPIO_WritePin(GPIOC, GREEN_LED_Pin, GPIO_PIN_SET); // Byte0.0:=GVL_WH.LmpSpdSet2;
 
-    else HAL_GPIO_WritePin(GPIOC, GREEN_LED_Pin, GPIO_PIN_RESET);
+//    else HAL_GPIO_WritePin(GPIOC, GREEN_LED_Pin, GPIO_PIN_RESET);
 //HAL_GPIO_TogglePin(GREEN_LED_Port, GREEN_LED_Pin);
 
 
 	}
 	}
 
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+  if(hadc->Instance == ADC1)
+  {   TxDataBuff1[0]=adcData[0]>>8;
+      TxDataBuff1[1]=adcData[0];
+
+	 uint32_t mailBoxNum = 0;
+	 HAL_CAN_AddTxMessage(&hcan1, &pTxHeader1, TxDataBuff1, &mailBoxNum);
+	//  HAL_GPIO_WritePin(GPIOC, GREEN_LED_Pin, GPIO_PIN_SET);
+ /*   for (uint8_t i = 0; i < ADC_CHANNELS_NUM; i++)
+    {
+      adcVoltage[i] = adcData[i] * 3.3 / 4095;
+    }*/
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -137,16 +160,20 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_CAN1_Init();
   MX_CAN2_Init();
   MX_TIM7_Init();
   MX_TIM1_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim7);
   TIM1->CCR1 = DataEncoder; // MAX 800 PWM GPIO_OUT_HIGH
   //HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_OC_Start_IT(&htim1, TIM_CHANNEL_1);
   HAL_TIMEx_OCN_Start_IT(&htim1, TIM_CHANNEL_1);
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -200,6 +227,58 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.ScanConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -326,9 +405,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 0;
+  htim1.Init.Prescaler = 25-1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 4095;
+  htim1.Init.Period = 10000;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -356,7 +435,7 @@ static void MX_TIM1_Init(void)
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 125;
+  sBreakDeadTimeConfig.DeadTime = 0;
   sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
   sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
   sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
@@ -406,6 +485,22 @@ static void MX_TIM7_Init(void)
   /* USER CODE BEGIN TIM7_Init 2 */
 
   /* USER CODE END TIM7_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
 
 }
 
