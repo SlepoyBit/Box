@@ -86,8 +86,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim) {
 
     if(htim->Instance == TIM7) {
     	//HAL_GPIO_TogglePin(GREEN_LED_Port, GREEN_LED_Pin);
-    	//TIM1->CCR1 = DataEncoder; // duty cycle PWM
-    	TIM1->CCR1 = adcData[0];
+    	TIM1->CCR1 = DataEncoder; // duty cycle PWM
+    	//TIM1->CCR1 = adcData[0];
     	uint32_t mailBoxNum = 0;
     	HAL_CAN_AddTxMessage(&hcan2, &pTxHeader2, TxDataBuff2, &mailBoxNum);
 
